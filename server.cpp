@@ -15,7 +15,7 @@ int main(int argc, char* argv[]) {
     try {
         TCPServer server(port);
         server.run();
-    } catch (const std::runtime_error& e) {
+    } catch (const std::exception& e) {
         std::cerr << "Server error: " << e.what() << std::endl;
         return 1;
     }
