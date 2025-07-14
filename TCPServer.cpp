@@ -26,7 +26,9 @@ void TCPServer::readClientData(int clientFD) {
     ssize_t readedBytes = recv(clientFD, buffer, BUFFER_SIZE - 1, 0);
 
     if (readedBytes <= 0) {
-        std::cout << "Client " << clientFD << " disconnected\n";
+        if (readedBytes == 0) {
+            std::cout << "Client " << clientFD << " disconnected\n";
+        }
         epoll_ctl(epollFD, EPOLL_CTL_DEL, clientFD, nullptr);
         close(clientFD);
         clientBuffers.erase(clientFD);
@@ -36,14 +38,15 @@ void TCPServer::readClientData(int clientFD) {
     buffer[readedBytes] = '\0';
     clientBuffers[clientFD] += buffer;
     std::string& clientBuffer = clientBuffers[clientFD];
-    size_t position = clientBuffer.find(' ');
 
-    while(position != std::string::npos) {
+    size_t position;
+    while((position = clientBuffer.find(' ')) != std::string::npos) {
         std::string expression = clientBuffer.substr(0, position);
         clientBuffer.erase(0, position + 1);
 
-        if(!expression.empty()) sendAnswer(clientFD, expression);
-        position = clientBuffer.find(' ');
+        if(!expression.empty()) {
+            sendAnswer(clientFD, expression);
+        }
     }
 }
 
@@ -52,9 +55,8 @@ void TCPServer::sendAnswer(int clientFD, const std::string& expression) {
         double result = calculator.calculate(expression);
         std::string response = std::to_string(result) + ' ';
         send(clientFD, response.c_str(), response.length(), MSG_NOSIGNAL);
-    } catch (const std::invalid_argument& error) {
-        std::string response = error.what();
-        response += ' ';
+    } catch (const std::exception& error) {
+        std::string response = "ERROR ";
         send(clientFD, response.c_str(), response.length(), MSG_NOSIGNAL);
     }
 }
@@ -63,6 +65,11 @@ void TCPServer::run() {
     serverFD = socket(AF_INET, SOCK_STREAM, 0);
     if (serverFD < 0)  {
         throw std::runtime_error("Failed to create socket");
+    }
+
+    int opt = 1;
+    if (setsockopt(serverFD, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+        throw std::runtime_error("Failed to set socket options");
     }
 
     struct sockaddr_in serverAddr = {};
@@ -98,6 +105,7 @@ void TCPServer::run() {
     while (true) {
         int eventsCount = epoll_wait(epollFD, events, BUFFER_SIZE, -1);
         if (eventsCount < 0) {
+            if (errno == EINTR) continue;
             throw std::runtime_error("Failed to wait for events");
         }
 
@@ -108,20 +116,22 @@ void TCPServer::run() {
 
                 int clientFD = accept(serverFD, (struct sockaddr*)&clientAddr, &clientAddrLen);
                 if (clientFD < 0) {
-                    throw std::runtime_error("Failed to accept client connection");
+                    if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                        std::cerr << "Failed to accept connection\n";
+                    }
+                    continue;
                 }
 
                 setNonBlocking(clientFD);
 
                 struct epoll_event clientEvent;
-                clientEvent.events = EPOLLIN | EPOLLET;
+                clientEvent.events = EPOLLIN;
                 clientEvent.data.fd = clientFD;
                 if (epoll_ctl(epollFD, EPOLL_CTL_ADD, clientFD, &clientEvent) < 0) {
                     std::cerr << "Failed to add client to epoll\n";
                     close(clientFD);
                     continue;
                 }
-
                 std::cout << "New client connected: " << clientFD << '\n';
             } else {
                 readClientData(events[i].data.fd);
