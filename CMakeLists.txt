@@ -4,12 +4,24 @@ project(TCP-Calculator CXX)
 set(CMAKE_CXX_STANDARD 20)
 
 add_library(serverLib
-        Calculator.cpp
-        Calculator.h
         TCPServer.cpp
         TCPServer.h
 )
 
-add_executable(server server.cpp)
+add_library(calculatorLib
+        Calculator.cpp
+        Calculator.h
+)
 
-target_link_libraries(server serverLib)
+add_library(clientLib
+        TCPClient.cpp
+        TCPClient.h
+        Generator.h
+        Generator.cpp
+)
+
+add_executable(server server.cpp)
+add_executable(client client.cpp)
+
+target_link_libraries(server serverLib calculatorLib)
+target_link_libraries(client clientLib calculatorLib)
